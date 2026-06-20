@@ -619,7 +619,7 @@ export default function NpsEvaluationComponent({ onSave }: NpsEvaluationProps) {
       <html>
       <body style="font-family: Calibri, sans-serif; font-size: 14px; color: #000;" dir="ltr">
         <p>Dear <strong>${agentFirstName}</strong>,</p>
-        <p>Here is your latest chat quality evaluation session details. Please review feedback & action items carefully to maintain our WE digital excellence goals:</p>
+        <p>Here is your latest chat NPS evaluation session details. Please review feedback & action items carefully to maintain our WE digital excellence goals:</p>
         
         <div style="background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 15px 0;">
           <h4 style="color: #c71d24; margin: 0 0 10px 0;">📌 Errors Spotted & Comments:</h4>
@@ -637,13 +637,13 @@ export default function NpsEvaluationComponent({ onSave }: NpsEvaluationProps) {
       </html>
     `;
 
-    const emlContent = `To: ${emailAgentAddress || "agent.name@te.eg"}\r\nSubject: Quality Coach session - ${agentName} - Chat: ${emailChatId || "AHT"}\r\nX-Unsent: 1\r\nContent-Type: text/html; charset=utf-8\r\n\r\n${emailBody}`;
+    const emlContent = `To: ${emailAgentAddress || "agent.name"}\r\nSubject: NPS Coach session - ${agentName} - Chat: ${emailChatId || "AHT"}\r\nX-Unsent: 1\r\nContent-Type: text/html; charset=utf-8\r\n\r\n${emailBody}`;
     
     const blob = new Blob([emlContent], { type: "message/rfc822" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `WE_Quality_Coach_${agentFirstName}.eml`;
+    link.download = `WE_NPS_Coach_${agentFirstName}.eml`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
