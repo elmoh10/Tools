@@ -104,6 +104,115 @@ export default function App() {
     fetchAllData();
   }, []);
 
+  // 🔒 Global Security Protection Layer (Anti-F12, Anti-Copy, Anti-Scraping and Console Blocker)
+  useEffect(() => {
+    // 1. Prevent right-click context menu
+    const handleContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Allow context menu only inside normal text input controls for typing/correction ease
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      e.preventDefault();
+    };
+    document.addEventListener("contextmenu", handleContextMenu);
+
+    // 2. Prevent common inspection and stealing shortcuts
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // F12 key
+      if (e.key === "F12" || e.keyCode === 123) {
+        e.preventDefault();
+        return false;
+      }
+      
+      // Ctrl+Shift+I / Cmd+Option+I (Inspect element)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "I" || e.key === "i" || e.keyCode === 73)) {
+        e.preventDefault();
+        return false;
+      }
+      
+      // Ctrl+Shift+J / Cmd+Option+J (Console)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "J" || e.key === "j" || e.keyCode === 74)) {
+        e.preventDefault();
+        return false;
+      }
+      
+      // Ctrl+Shift+C / Cmd+Option+C (Inspect point)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "C" || e.key === "c" || e.keyCode === 67)) {
+        e.preventDefault();
+        return false;
+      }
+      
+      // Ctrl+U / Cmd+Option+U (View source)
+      if ((e.ctrlKey || e.metaKey) && (e.key === "U" || e.key === "u" || e.keyCode === 85)) {
+        e.preventDefault();
+        return false;
+      }
+      
+      // Ctrl+S / Cmd+S (Save web page)
+      if ((e.ctrlKey || e.metaKey) && (e.key === "S" || e.key === "s" || e.keyCode === 83)) {
+        e.preventDefault();
+        return false;
+      }
+      
+      // Ctrl+P / Cmd+P (Print page / PDF output)
+      if ((e.ctrlKey || e.metaKey) && (e.key === "P" || e.key === "p" || e.keyCode === 80)) {
+        e.preventDefault();
+        return false;
+      }
+
+      // Prevent copy and cut shortcuts unless in typing fields
+      const target = e.target as HTMLElement;
+      const isInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if (!isInput && (e.ctrlKey || e.metaKey) && (e.key === "C" || e.key === "c" || e.key === "X" || e.key === "x")) {
+        e.preventDefault();
+        return false;
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+
+    // 3. Prevent dragging images or files from the page (prevents asset downloading)
+    const handleDragStart = (e: DragEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && target.tagName === "IMG") {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener("dragstart", handleDragStart);
+
+    // 4. Prevent copying text from outer sections
+    const handleCopy = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if (!isInput) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener("copy", handleCopy);
+
+    // 5. Active Anti-Debugging Loop (triggers pause/debugger once console gets inspected)
+    const debugLoop = setInterval(() => {
+      try {
+        (function freeze(i) {
+          if (("" + i / i).length !== 1 || i % 20 === 0) {
+            (function() {}).constructor("debugger")();
+          } else {
+            debugger;
+          }
+          freeze(++i);
+        })(0);
+      } catch (err) {}
+    }, 800);
+
+    return () => {
+      document.removeEventListener("contextmenu", handleContextMenu);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("dragstart", handleDragStart);
+      document.removeEventListener("copy", handleCopy);
+      clearInterval(debugLoop);
+    };
+  }, []);
+
   // API Persistence Handlers
   const handleSaveNps = async (record: Partial<NpsEvaluation>) => {
     try {

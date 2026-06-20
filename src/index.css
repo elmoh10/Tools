@@ -54,6 +54,17 @@ body {
   color: var(--text-primary);
   font-family: var(--font-sans);
   transition: background-color 0.3s, color 0.3s;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+input, textarea, select, [contenteditable="true"] {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
 }
 
 /* Styled Scrollbars */
