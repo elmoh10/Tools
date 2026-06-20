@@ -10,6 +10,17 @@ import { getFirestore, Firestore } from "firebase-admin/firestore";
 const app = express();
 const PORT = 3000;
 
+// Update tracking system for leaders using the tool
+let lastUpdateEvent: { id: string; timestamp: number; message: string } | null = null;
+
+function triggerUpdateEvent(message: string) {
+  lastUpdateEvent = {
+    id: Math.random().toString(36).substring(2, 9),
+    timestamp: Date.now(),
+    message: message
+  };
+}
+
 app.use(express.json({ limit: "15mb" }));
 
 // Local JSON File Database persistence
@@ -300,8 +311,12 @@ function setupSnapshotListeners() {
     const list: any[] = [];
     snap.forEach(doc => list.push(doc.data()));
     if (list.length > 0) {
+      const isDifferent = JSON.stringify(database.users) !== JSON.stringify(list);
       database.users = list;
       saveLocalOnly();
+      if (isDifferent) {
+        triggerUpdateEvent("⚠️ تم تحديث بيانات المشرفين والمستخدمين من السحابة مباشرة!");
+      }
     }
   });
 
@@ -309,8 +324,12 @@ function setupSnapshotListeners() {
     const list: any[] = [];
     snap.forEach(doc => list.push(doc.data()));
     if (list.length > 0) {
+      const isDifferent = JSON.stringify(database.nps_evaluations) !== JSON.stringify(list);
       database.nps_evaluations = list;
       saveLocalOnly();
+      if (isDifferent) {
+        triggerUpdateEvent("📈 تم تحديث وإدخال تقييمات NPS جديدة بالنظام حالاً!");
+      }
     }
   });
 
@@ -318,8 +337,12 @@ function setupSnapshotListeners() {
     const list: any[] = [];
     snap.forEach(doc => list.push(doc.data()));
     if (list.length > 0) {
+      const isDifferent = JSON.stringify(database.aht_evaluations) !== JSON.stringify(list);
       database.aht_evaluations = list;
       saveLocalOnly();
+      if (isDifferent) {
+        triggerUpdateEvent("⏱️ تم تحديث وإضافة خطط تطوير زمن المعالجة (AHT Coaching Plans) بالنظام!");
+      }
     }
   });
 
@@ -327,11 +350,16 @@ function setupSnapshotListeners() {
     const list: any[] = [];
     snap.forEach(doc => list.push(doc.data()));
     if (list.length > 0) {
-      database.quality_records = list.map(item => ({
+      const mapped = list.map(item => ({
         ...item,
         id: item.id || `${item.EmployeeID}_${item.SheetDate}_${item.FactorName}`
       }));
+      const isDifferent = JSON.stringify(database.quality_records) !== JSON.stringify(mapped);
+      database.quality_records = mapped;
       saveLocalOnly();
+      if (isDifferent) {
+        triggerUpdateEvent("📋 تم رفع وتحديث قاعدة بيانات أداء الجودة (Quality Performance)!");
+      }
     }
   });
 
@@ -339,15 +367,24 @@ function setupSnapshotListeners() {
     const list: any[] = [];
     snap.forEach(doc => list.push(doc.data()));
     if (list.length > 0) {
+      const isDifferent = JSON.stringify(database.assistant_knowledge) !== JSON.stringify(list);
       database.assistant_knowledge = list;
       saveLocalOnly();
+      if (isDifferent) {
+        triggerUpdateEvent("📖 تم تعديل الدليل المعرفي وموسوعة الـ Wiki للمساعد الذكي!");
+      }
     }
   });
 
   firestoreDb.collection("config").doc("settings").onSnapshot(doc => {
     if (doc.exists) {
-      database.gemini_api_key = doc.data()?.gemini_api_key || database.gemini_api_key;
+      const liveKey = doc.data()?.gemini_api_key || "";
+      const isDifferent = database.gemini_api_key !== liveKey;
+      database.gemini_api_key = liveKey || database.gemini_api_key;
       saveLocalOnly();
+      if (isDifferent) {
+        triggerUpdateEvent("🔑 تم تعديل مفتاح الـ Gemini API السحابي للخدمة!");
+      }
     }
   });
 }
@@ -480,6 +517,7 @@ app.post("/api/nps", (req, res) => {
   };
   database.nps_evaluations.push(record);
   saveDb(database);
+  triggerUpdateEvent(`📈 تم تسجيل تقييم NPS جديد للموظف (${req.body.EmployeeName || req.body.EmployeeID || "مجهول"}) بنجاح!`);
   res.status(201).json(record);
 });
 
@@ -490,6 +528,7 @@ app.put("/api/nps/:id/acknowledge", (req, res) => {
     database.nps_evaluations[evalIdx].acknowledged = true;
     database.nps_evaluations[evalIdx].ackDate = new Date().toISOString();
     saveDb(database);
+    triggerUpdateEvent(`✅ تم اعتماد وتقفيل تقييم NPS للموظف (${database.nps_evaluations[evalIdx].EmployeeName || database.nps_evaluations[evalIdx].AgentName}) بنجاح!`);
     res.json(database.nps_evaluations[evalIdx]);
   } else {
     res.status(404).json({ error: "Record not found" });
@@ -508,6 +547,7 @@ app.post("/api/aht", (req, res) => {
   };
   database.aht_evaluations.push(record);
   saveDb(database);
+  triggerUpdateEvent(`⏱️ تم إنشاء خطة جديدة ومبتكرة لتطوير الـ AHT للموظف (${req.body.EmployeeName || req.body.EmployeeID || ""})!`);
   res.status(201).json(record);
 });
 
@@ -540,6 +580,7 @@ app.post("/api/quality/bulk", (req, res) => {
   })).filter(x => x.EmployeeID !== "");
 
   saveDb(database);
+  triggerUpdateEvent(`📋 تم رفع وتحديث قاعدة بيانات أداء الجودة لـ (${database.quality_records.length}) موظف بنجاح!`);
   res.json({ success: true, count: database.quality_records.length });
 });
 
@@ -556,6 +597,7 @@ app.post("/api/clear-db", (req, res) => {
     database = { nps_evaluations: [], aht_evaluations: [], quality_records: [], users: database.users || [] };
   }
   saveDb(database);
+  triggerUpdateEvent(`🗑️ تم تصفية وإعادة تهيئة بيانات القسم المحددة بالنظام!`);
   res.json({ success: true });
 });
 
@@ -571,6 +613,7 @@ app.post("/api/clear", (req, res) => {
     database = { nps_evaluations: [], aht_evaluations: [], quality_records: [], users: database.users || [] };
   }
   saveDb(database);
+  triggerUpdateEvent(`🗑️ تم مسح وتنظيف قاعدة البيانات بنجاح!`);
   res.json({ success: true });
 });
 
@@ -729,6 +772,7 @@ app.post("/api/ai/knowledge", (req, res) => {
   knowledge.push(newItem);
   database.assistant_knowledge = knowledge;
   saveDb(database);
+  triggerUpdateEvent(`📖 تمت إضافة مقال معرفي جديد في موسوعة الـ Wiki بعنوان (${newItem.title})!`);
 
   res.status(201).json({ success: true, item: newItem });
 });
@@ -754,6 +798,7 @@ app.put("/api/ai/knowledge/:id", (req, res) => {
 
   database.assistant_knowledge = knowledge;
   saveDb(database);
+  triggerUpdateEvent(`✏️ تم تعديل وتحديث المقال المعرفي (${knowledge[idx].title}) في موسوعة الـ Wiki!`);
 
   res.json({ success: true, item: knowledge[idx] });
 });
@@ -762,6 +807,7 @@ app.delete("/api/ai/knowledge/:id", (req, res) => {
   const { id } = req.params;
   const knowledge = database.assistant_knowledge || [];
   const initialLength = knowledge.length;
+  const deletedItem = knowledge.find(k => k.id === id);
 
   database.assistant_knowledge = knowledge.filter(k => k.id !== id);
 
@@ -770,6 +816,7 @@ app.delete("/api/ai/knowledge/:id", (req, res) => {
   }
 
   saveDb(database);
+  triggerUpdateEvent(`🗑️ تم حذف المقال المعرفي (${deletedItem ? deletedItem.title : "مجهول"}) من موسوعة الـ Wiki!`);
   res.json({ success: true });
 });
 
@@ -800,7 +847,8 @@ app.post("/api/heartbeat", (req, res) => {
   res.json({
     success: true,
     activeCount: Math.max(1, activeCount),
-    activePeople: Array.from(new Set(activePeople))
+    activePeople: Array.from(new Set(activePeople)),
+    lastUpdateEvent: lastUpdateEvent
   });
 });
 

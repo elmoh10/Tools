@@ -93,6 +93,33 @@ input, textarea, select, [contenteditable="true"] {
   animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+@keyframes marquee-rtl {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes marquee-ltr {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+
+.animate-marquee-rtl {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee-rtl 25s linear infinite;
+}
+
+.animate-marquee-ltr {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee-ltr 25s linear infinite;
+}
+
+.marquee-container:hover .animate-marquee-rtl,
+.marquee-container:hover .animate-marquee-ltr {
+  animation-play-state: paused;
+}
+
 /* RTL Helpers */
 [dir="rtl"] {
   text-align: right;

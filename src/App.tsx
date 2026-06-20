@@ -48,6 +48,21 @@ export default function App() {
     return tId;
   });
 
+  // 🔔 Live tool updates animation & alert states
+  const [lastUpdateEvent, setLastUpdateEvent] = useState<{ id: string; timestamp: number; message: string } | null>(null);
+  const [showNotification, setShowNotification] = useState<boolean>(false);
+  const [refetchTrigger, setRefetchTrigger] = useState<number>(0);
+
+  // ⏱️ Auto-dismiss notification after 30 seconds
+  useEffect(() => {
+    if (showNotification && lastUpdateEvent) {
+      const timer = setTimeout(() => {
+        setShowNotification(false);
+      }, 30000); // 30 seconds
+      return () => clearTimeout(timer);
+    }
+  }, [showNotification, lastUpdateEvent?.id]);
+
   // Alive Heartbeat interval
   useEffect(() => {
     const sendHeartbeat = async () => {
@@ -65,6 +80,23 @@ export default function App() {
           if (data.success) {
             setActiveUsersCount(data.activeCount || 1);
             setActiveUsersNames(data.activePeople || []);
+            
+            // Check for real-time live database updates and sync them
+            if (data.lastUpdateEvent) {
+              const event = data.lastUpdateEvent;
+              setLastUpdateEvent(prev => {
+                if (!prev || prev.id !== event.id) {
+                  // Only show notification if the update event is fresh (within last 60 seconds)
+                  const isFresh = Date.now() - event.timestamp < 60000;
+                  if (isFresh) {
+                    setShowNotification(true);
+                    // Automatic Background Sync: trigger an silent dashboard refresh!
+                    setRefetchTrigger(r => r + 1);
+                  }
+                }
+                return event;
+              });
+            }
           }
         }
       } catch (e) {
@@ -80,10 +112,13 @@ export default function App() {
     return () => clearInterval(interval);
   }, [tabId, currentUser]);
 
-  // Initial Fetch on component mount
+  // Initial Fetch & Auto Refresh on database update triggers
   useEffect(() => {
     const fetchAllData = async () => {
-      setIsLoading(true);
+      // Show fullscreen loading page only on the first cold mount
+      if (refetchTrigger === 0) {
+        setIsLoading(true);
+      }
       try {
         const [npsRes, ahtRes, qualRes] = await Promise.all([
           fetch("/api/nps").then(r => r.ok ? r.json() : []),
@@ -95,14 +130,14 @@ export default function App() {
         setAhtEvaluations(ahtRes);
         setQualityRecords(qualRes);
       } catch (err) {
-        console.error("Failed to load initial server state:", err);
+        console.error("Failed to load server state:", err);
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchAllData();
-  }, []);
+  }, [refetchTrigger]);
 
   // 🔒 Global Security Protection Layer (Anti-F12, Anti-Copy, Anti-Scraping and Console Blocker)
   useEffect(() => {
@@ -301,7 +336,48 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg-main)] text-white font-sans flex flex-col md:flex-row">
+    <div className="min-h-screen bg-[var(--bg-main)] text-white font-sans flex flex-col md:flex-row relative">
+      
+      {/* 🔔 Floating Animated Live Update Notification Banner */}
+      {showNotification && lastUpdateEvent && (
+        <div 
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-3xl animate-fade-in"
+          style={{ direction: "rtl" }}
+        >
+          <div className="bg-[#0f0d18]/90 backdrop-blur-md border border-[#cf0a70] shadow-[0_0_15px_rgba(207,10,112,0.3)] rounded-full h-11 px-4 flex items-center justify-between overflow-hidden gap-3">
+            {/* Live Indicator Badges */}
+            <div className="flex items-center gap-1.5 shrink-0 bg-gradient-to-r from-[#cf0a70] to-[#5c246f] text-white px-3 py-1 rounded-full text-[10px] font-black tracking-wider select-none animate-pulse shadow-[0_0_10px_rgba(207,10,112,0.5)]">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+              </span>
+              تحديث مباشر
+            </div>
+
+            {/* Marquee Container */}
+            <div className="flex-1 overflow-hidden h-full flex items-center relative marquee-container">
+              <div className="animate-marquee-ltr hover:[animation-play-state:paused] flex items-center gap-4 py-1 text-xs font-black text-white whitespace-nowrap">
+                <span>{lastUpdateEvent.message}</span>
+                <span className="text-[#cf0a70] font-black">•</span>
+                <span className="text-[10px] text-gray-400 font-medium">سيختفي التنبيه تلقائياً خلال 30 ثانية</span>
+                <span className="text-[#cf0a70] font-black">•</span>
+                <span>{lastUpdateEvent.message}</span>
+              </div>
+            </div>
+
+            {/* Manual Dismiss Button */}
+            <button 
+              onClick={() => setShowNotification(false)}
+              className="text-gray-400 hover:text-white transition-colors cursor-pointer p-1 rounded-full hover:bg-white/5 shrink-0"
+              title="إغلاق التنبيه"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
       
       {/* Sidebar Navigation */}
       <aside className="w-full md:w-64 bg-[var(--bg-card)] border-b md:border-b-0 md:border-r border-[var(--border-card)] p-5 flex flex-col justify-between">
@@ -464,56 +540,63 @@ export default function App() {
       </aside>
 
       {/* Main Panel Content Area */}
-      <main className="flex-1 p-6 sm:p-8 max-w-7xl mx-auto w-full overflow-y-auto">
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center h-96 space-y-3">
-            <div className="w-10 h-10 border-4 border-t-[var(--color-brand-magenta)] border-[rgba(255,255,255,0.05)] rounded-full animate-spin" />
-            <p className="text-xs text-[var(--text-secondary)] font-bold">جاري المزامنة السحابية وقراءة الملامح والبيانات...</p>
-          </div>
-        ) : (
-          <div className="animate-fade-in">
-            {activeTab === "dashboard" && (
-               <Dashboard
-                 evaluations={npsEvaluations}
-                 ahtEvaluations={ahtEvaluations}
-                 qualityRecords={qualityRecords}
-               />
-            )}
-            
-            {activeTab === "nps" && (
-              <NpsEvaluationComponent onSave={handleSaveNps} />
-            )}
+      <main className="flex-1 p-6 sm:p-8 max-w-7xl mx-auto w-full overflow-y-auto flex flex-col justify-between">
+        <div>
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center h-96 space-y-3">
+              <div className="w-10 h-10 border-4 border-t-[var(--color-brand-magenta)] border-[rgba(255,255,255,0.05)] rounded-full animate-spin" />
+              <p className="text-xs text-[var(--text-secondary)] font-bold">جاري المزامنة السحابية وقراءة الملامح والبيانات...</p>
+            </div>
+          ) : (
+            <div className="animate-fade-in">
+              {activeTab === "dashboard" && (
+                 <Dashboard
+                   evaluations={npsEvaluations}
+                   ahtEvaluations={ahtEvaluations}
+                   qualityRecords={qualityRecords}
+                 />
+              )}
+              
+              {activeTab === "nps" && (
+                <NpsEvaluationComponent onSave={handleSaveNps} />
+              )}
 
-            {activeTab === "aht" && (
-              <AhtEnhancement
-                evaluations={ahtEvaluations}
-                onSave={handleSaveAht}
-              />
-            )}
+              {activeTab === "aht" && (
+                <AhtEnhancement
+                  evaluations={ahtEvaluations}
+                  onSave={handleSaveAht}
+                />
+              )}
 
-            {activeTab === "quality" && (
-              <QualityTracker
-                records={qualityRecords}
-                onUploadBulk={handleUploadBulkQuality}
-              />
-            )}
+              {activeTab === "quality" && (
+                <QualityTracker
+                  records={qualityRecords}
+                  onUploadBulk={handleUploadBulkQuality}
+                />
+              )}
 
-            {activeTab === "trend" && (
-              <TrendAnalysis evaluations={npsEvaluations} />
-            )}
+              {activeTab === "trend" && (
+                <TrendAnalysis evaluations={npsEvaluations} />
+              )}
 
-            {activeTab === "inspector" && (
-              <AiInspector
-                npsEvaluations={npsEvaluations}
-                ahtEvaluations={ahtEvaluations}
-              />
-            )}
+              {activeTab === "inspector" && (
+                <AiInspector
+                  npsEvaluations={npsEvaluations}
+                  ahtEvaluations={ahtEvaluations}
+                />
+              )}
 
-            {activeTab === "admin" && currentUser.role === "admin" && (
-              <AdminPanel />
-            )}
-          </div>
-        )}
+              {activeTab === "admin" && currentUser.role === "admin" && (
+                <AdminPanel />
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Dynamic & Aesthetic Signature Footer */}
+        <footer className="mt-16 pt-5 border-t border-[rgba(255,255,255,0.04)] text-center text-[10px] tracking-widest text-[#6c5b94] font-black select-none uppercase">
+          Developed By: <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 via-fuchsia-400 to-[#fb1c9d] font-black transition-opacity hover:opacity-85 duration-300">Hesham El-Gamil</span>
+        </footer>
       </main>
       
       {/* Floating Interactive Gemini Chat Assistant */}
