@@ -4,6 +4,8 @@ import path from "path";
 import fs from "fs";
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { createServer as createViteServer } from "vite";
+import { initializeApp, getApps, getApp } from "firebase-admin/app";
+import { getFirestore, Firestore } from "firebase-admin/firestore";
 
 const app = express();
 const PORT = 3000;
@@ -160,6 +162,272 @@ function saveDb(db: DbSchema) {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf-8");
   } catch (e) {
     console.error("Failed to save local DB", e);
+  }
+
+  // Background Cloud Sync to Firestore
+  if (isFirestoreInitialized && firestoreDb) {
+    const quality = (db.quality_records || []).map((q, idx) => ({
+      id: q.id || `${q.EmployeeID}_${q.SheetDate}_${q.FactorName}_${idx}`,
+      ...q
+    }));
+
+    Promise.all([
+      syncSingleChange("users", db.users || [], "username"),
+      syncSingleChange("nps_evaluations", db.nps_evaluations || [], "id"),
+      syncSingleChange("aht_evaluations", db.aht_evaluations || [], "id"),
+      syncSingleChange("quality_records", quality, "id"),
+      syncSingleChange("assistant_knowledge", db.assistant_knowledge || [], "id"),
+      firestoreDb.collection("config").doc("settings").set({
+        gemini_api_key: db.gemini_api_key || ""
+      }, { merge: true })
+    ]).catch(err => {
+      console.error("⚠️ Failed background sync to Firestore:", err);
+    });
+  }
+}
+
+// --- Firebase Firestore Sync Server-Side Engine ---
+let firestoreDb: Firestore | null = null;
+let isFirestoreInitialized = false;
+
+function saveLocalOnly() {
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(database, null, 2), "utf-8");
+  } catch (e) {
+    console.error("Failed to save local DB", e);
+  }
+}
+
+async function initializeFirestore() {
+  try {
+    const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+    if (!fs.existsSync(configPath)) {
+      console.warn("⚠️ firebase-applet-config.json not found. Running in Local Storage Mode.");
+      return;
+    }
+
+    const firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    const projectId = firebaseConfig.projectId;
+    const databaseId = firebaseConfig.firestoreDatabaseId;
+
+    if (!projectId) {
+      console.warn("⚠️ No projectId found in firebase-applet-config.json. Running in Local Storage Mode.");
+      return;
+    }
+
+    if (getApps().length === 0) {
+      initializeApp({
+        projectId: projectId
+      });
+    }
+
+    if (databaseId) {
+      firestoreDb = getFirestore(getApp(), databaseId);
+    } else {
+      firestoreDb = getFirestore();
+    }
+
+    isFirestoreInitialized = true;
+    console.log(`📡 Cloud Sync activated! Connected to Firestore project: ${projectId}, database: ${databaseId || "(default)"}`);
+
+    await startFirestoreSync();
+
+  } catch (err) {
+    console.error("❌ Failed to initialize Firebase Admin SDK:", err);
+  }
+}
+
+async function startFirestoreSync() {
+  if (!firestoreDb) return;
+
+  try {
+    const usersSnap = await firestoreDb.collection("users").get();
+    if (usersSnap.empty) {
+      console.log("☁️ Firestore is empty. Seeding local database to Firestore cloud...");
+      await syncAllLocalToFirestore();
+    } else {
+      console.log("☁️ Found active Firestore documents. Mirroring live cloud data...");
+      await fetchAllFromFirestore();
+    }
+
+    setupSnapshotListeners();
+
+  } catch (err) {
+    console.error("❌ Error in startup Firestore sync:", err);
+  }
+}
+
+async function fetchAllFromFirestore() {
+  if (!firestoreDb) return;
+  try {
+    const collections = ["users", "nps_evaluations", "aht_evaluations", "quality_records", "assistant_knowledge"];
+    
+    for (const coll of collections) {
+      const snap = await firestoreDb.collection(coll).get();
+      const items: any[] = [];
+      snap.forEach(doc => {
+        items.push(doc.data());
+      });
+      if (items.length > 0) {
+        if (coll === "users") database.users = items;
+        else if (coll === "nps_evaluations") database.nps_evaluations = items;
+        else if (coll === "aht_evaluations") database.aht_evaluations = items;
+        else if (coll === "quality_records") {
+          database.quality_records = items.map(item => ({
+            ...item,
+            id: item.id || `${item.EmployeeID}_${item.SheetDate}_${item.FactorName}`
+          }));
+        }
+        else if (coll === "assistant_knowledge") database.assistant_knowledge = items;
+      }
+    }
+
+    const configDoc = await firestoreDb.collection("config").doc("settings").get();
+    if (configDoc.exists) {
+      database.gemini_api_key = configDoc.data()?.gemini_api_key || database.gemini_api_key;
+    }
+
+    saveLocalOnly();
+  } catch (err) {
+    console.error("❌ Error fetching initial Firestore sync:", err);
+  }
+}
+
+function setupSnapshotListeners() {
+  if (!firestoreDb) return;
+
+  firestoreDb.collection("users").onSnapshot(snap => {
+    const list: any[] = [];
+    snap.forEach(doc => list.push(doc.data()));
+    if (list.length > 0) {
+      database.users = list;
+      saveLocalOnly();
+    }
+  });
+
+  firestoreDb.collection("nps_evaluations").onSnapshot(snap => {
+    const list: any[] = [];
+    snap.forEach(doc => list.push(doc.data()));
+    if (list.length > 0) {
+      database.nps_evaluations = list;
+      saveLocalOnly();
+    }
+  });
+
+  firestoreDb.collection("aht_evaluations").onSnapshot(snap => {
+    const list: any[] = [];
+    snap.forEach(doc => list.push(doc.data()));
+    if (list.length > 0) {
+      database.aht_evaluations = list;
+      saveLocalOnly();
+    }
+  });
+
+  firestoreDb.collection("quality_records").onSnapshot(snap => {
+    const list: any[] = [];
+    snap.forEach(doc => list.push(doc.data()));
+    if (list.length > 0) {
+      database.quality_records = list.map(item => ({
+        ...item,
+        id: item.id || `${item.EmployeeID}_${item.SheetDate}_${item.FactorName}`
+      }));
+      saveLocalOnly();
+    }
+  });
+
+  firestoreDb.collection("assistant_knowledge").onSnapshot(snap => {
+    const list: any[] = [];
+    snap.forEach(doc => list.push(doc.data()));
+    if (list.length > 0) {
+      database.assistant_knowledge = list;
+      saveLocalOnly();
+    }
+  });
+
+  firestoreDb.collection("config").doc("settings").onSnapshot(doc => {
+    if (doc.exists) {
+      database.gemini_api_key = doc.data()?.gemini_api_key || database.gemini_api_key;
+      saveLocalOnly();
+    }
+  });
+}
+
+async function syncAllLocalToFirestore() {
+  const users = database.users || [];
+  const nps = database.nps_evaluations || [];
+  const aht = database.aht_evaluations || [];
+  const quality = (database.quality_records || []).map((q, idx) => ({
+    id: q.id || `${q.EmployeeID}_${q.SheetDate}_${q.FactorName}_${idx}`,
+    ...q
+  }));
+  const knowledge = database.assistant_knowledge || [];
+
+  await syncColl("users", users, "username");
+  await syncColl("nps_evaluations", nps, "id");
+  await syncColl("aht_evaluations", aht, "id");
+  await syncColl("quality_records", quality, "id");
+  await syncColl("assistant_knowledge", knowledge, "id");
+
+  if (database.gemini_api_key) {
+    await firestoreDb?.collection("config").doc("settings").set({
+      gemini_api_key: database.gemini_api_key
+    }, { merge: true });
+  }
+}
+
+async function syncColl(collectionName: string, items: any[], idKey: string) {
+  if (!firestoreDb || !items || items.length === 0) return;
+  try {
+    const chunk = (arr: any[], size: number) => {
+      const chunks = [];
+      for (let i = 0; i < arr.length; i += size) {
+        chunks.push(arr.slice(i, i + size));
+      }
+      return chunks;
+    };
+
+    const itemChunks = chunk(items, 400);
+
+    for (const itemChunk of itemChunks) {
+      const batch = firestoreDb.batch();
+      for (const item of itemChunk) {
+        const docId = String(item[idKey]);
+        const docRef = firestoreDb.collection(collectionName).doc(docId);
+        batch.set(docRef, item, { merge: true });
+      }
+      await batch.commit();
+    }
+  } catch (err) {
+    console.error(`❌ Seeding failed for ${collectionName}:`, err);
+  }
+}
+
+async function syncSingleChange(collectionName: string, items: any[], idKey: string) {
+  if (!firestoreDb) return;
+  try {
+    const snapshot = await firestoreDb.collection(collectionName).get();
+    const existingIds = new Set<string>();
+    snapshot.forEach(doc => existingIds.add(doc.id));
+
+    const itemIds = new Set(items.map(item => String(item[idKey])));
+
+    const batch = firestoreDb.batch();
+    for (const item of items) {
+      const docId = String(item[idKey]);
+      const docRef = firestoreDb.collection(collectionName).doc(docId);
+      batch.set(docRef, item, { merge: true });
+    }
+
+    for (const docId of existingIds) {
+      if (!itemIds.has(docId)) {
+        const docRef = firestoreDb.collection(collectionName).doc(docId);
+        batch.delete(docRef);
+      }
+    }
+
+    await batch.commit();
+  } catch (err) {
+    console.error(`❌ Background sync single change failed for ${collectionName}:`, err);
   }
 }
 
@@ -981,6 +1249,9 @@ app.post("/api/ai/multiturn-chat", async (req, res) => {
 
 // Vite / static file hosting
 async function start() {
+  // Initialize Cloud database sync
+  await initializeFirestore();
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
