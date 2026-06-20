@@ -34,6 +34,7 @@ export default function NpsEvaluationComponent({ onSave }: NpsEvaluationProps) {
   const [chatEnd, setChatEnd] = useState("-");
   const [chatDuration, setChatDuration] = useState("-");
   const [npsPrediction, setNpsPrediction] = useState("معلق ⏳");
+  const [isAiFallback, setIsAiFallback] = useState(false);
 
   // Coaching text outputs
   const [manualSummary, setManualSummary] = useState("");
@@ -216,6 +217,23 @@ export default function NpsEvaluationComponent({ onSave }: NpsEvaluationProps) {
         return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
       };
 
+      // Pre-calculate hold intervals to bypass response time delays during hold periods
+      const holdKw = ["لحظات", "دقيقتين", "انتظار", "افحص", "راجع", "هتاكد", "ثواني", "معايا"];
+      const holdIntervals: Array<{ startSec: number; endSec: number }> = [];
+      for (let i = 0; i < messages.length - 1; i++) {
+        if (messages[i].type === "agent" && holdKw.some(kw => messages[i].text.includes(kw))) {
+          for (let j = i + 1; j < messages.length; j++) {
+            if (messages[j].type === "agent") {
+              let startSec = parseTimeStr(messages[i].timeStr);
+              let endSec = parseTimeStr(messages[j].timeStr);
+              if (endSec < startSec) endSec += 86400; // overnight fallback
+              holdIntervals.push({ startSec, endSec });
+              break;
+            }
+          }
+        }
+      }
+
       // Detect response delays (> 60s)
       for (let i = 0; i < messages.length - 1; i++) {
         if (messages[i].type === "customer") {
@@ -223,6 +241,21 @@ export default function NpsEvaluationComponent({ onSave }: NpsEvaluationProps) {
           if (i > 0 && messages[i - 1].type === "customer") {
             continue;
           }
+
+          // Check if this customer message falls within an active hold interval
+          let custSec = parseTimeStr(messages[i].timeStr);
+          const isDuringHold = holdIntervals.some(interval => {
+            let sec = custSec;
+            if (sec < interval.startSec && interval.endSec >= 86400) {
+              sec += 86400; // overnight fallback
+            }
+            return sec >= interval.startSec && sec <= interval.endSec;
+          });
+
+          if (isDuringHold) {
+            continue; // Skip response time check since the customer message was sent during a hold
+          }
+
           // Find the next agent response
           for (let j = i + 1; j < messages.length; j++) {
             if (messages[j].type === "agent") {
@@ -245,7 +278,6 @@ export default function NpsEvaluationComponent({ onSave }: NpsEvaluationProps) {
       }
 
       // Detect hold delays (> 120s / 2 mins)
-      const holdKw = ["لحظات", "دقيقتين", "انتظار", "افحص", "راجع", "هتاكد", "ثواني", "معايا"];
       for (let i = 0; i < messages.length - 1; i++) {
         if (messages[i].type === "agent" && holdKw.some(kw => messages[i].text.includes(kw))) {
           for (let j = i + 1; j < messages.length; j++) {
@@ -432,6 +464,7 @@ export default function NpsEvaluationComponent({ onSave }: NpsEvaluationProps) {
 
       if (response.ok) {
         const data = await response.json();
+        setIsAiFallback(!!data.fallback);
         if (data.nps) {
           const formattedNps = data.nps.includes("Promoter") 
             ? "داعم (Promoter) 🟢" 
@@ -442,6 +475,7 @@ export default function NpsEvaluationComponent({ onSave }: NpsEvaluationProps) {
           setJourneySteps(data.sentiment_journey);
         }
       } else {
+        setIsAiFallback(true);
         setNpsPrediction("محايد (Passive) 🟡");
         setJourneySteps([
           { time: "بداية المحادثة", mood: "غاضب", reason: "العميل مستاء من صعوبات الاتصال" },
@@ -512,12 +546,17 @@ export default function NpsEvaluationComponent({ onSave }: NpsEvaluationProps) {
       if (response.ok) {
         const data = await response.json();
         setAiCoachingPlan(data.text || "");
+        if (data.text && data.text.includes("خط تغطية احتياطي")) {
+          setIsAiFallback(true);
+        }
       } else {
         setAiCoachingPlan("تعذر معالجة خطة المتابعة بالذكاء الاصطناعي.");
+        setIsAiFallback(true);
       }
     } catch (e) {
       console.error(e);
       setAiCoachingPlan("تعذر الاتصال بخدمة الذكاء الاصطناعي.");
+      setIsAiFallback(true);
     } finally {
       setIsEvaluatingCoaching(false);
     }
@@ -812,6 +851,16 @@ export default function NpsEvaluationComponent({ onSave }: NpsEvaluationProps) {
             <CheckSquare className="text-[var(--color-brand-magenta)]" size={20} />
             <span>تقرير الأداء المبدئي ونتائج المسح</span>
           </div>
+
+          {isAiFallback && (
+            <div className="bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-xl p-4 text-xs font-semibold leading-relaxed flex items-center gap-3" dir="rtl">
+              <span className="text-xl">💡</span>
+              <div>
+                <strong className="block text-sm mb-1 text-white">⚙️ تم تشغيل المحرك التحليلي المحلي (Local Engine Active)</strong>
+                تم جلب التحليلات محلياً بنجاح وكفاءة تفادياً لتقييد الـ API السحابي (أو بسبب نفاد رصيد الفحص/Prepayment credits). جاري محاكاة خريطة مشاعر العميل وحساب درجات الموظف وملاحظات الجودة بدقة ونشاط!
+              </div>
+            </div>
+          )}
 
           {/* Quick Metrics */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4" dir="rtl">

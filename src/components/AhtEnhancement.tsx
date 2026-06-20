@@ -118,10 +118,31 @@ export default function AhtEnhancement({ evaluations, onSave }: AhtEnhancementPr
       setActualAht("07:15");
     }
 
-    // Max Response Time
+    // Max Response Time & Hold pre-calculation
+    const holdKw = ["لحظات", "دقيقتين", "انتظار", "افحص", "راجع", "هتاكد", "ثواني", "معايا"];
+    const holdIntervals: Array<{ startMs: number; endMs: number }> = [];
+    for (let k = 0; k < messages.length - 1; k++) {
+      if (messages[k].type === "agent" && holdKw.some(kw => messages[k].text.includes(kw))) {
+        for (let j = k + 1; j < messages.length; j++) {
+          if (messages[j].type === "agent") {
+            holdIntervals.push({
+              startMs: messages[k].timeObj.getTime(),
+              endMs: messages[j].timeObj.getTime()
+            });
+            break;
+          }
+        }
+      }
+    }
+
     let maxResp = 0;
     for (let i = 0; i < messages.length - 1; i++) {
       if (messages[i].type === "customer") {
+        // Skip check if the customer message is sent during an active hold period
+        const curTime = messages[i].timeObj.getTime();
+        const isDuringHold = holdIntervals.some(interval => curTime >= interval.startMs && curTime <= interval.endMs);
+        if (isDuringHold) continue;
+
         for (let j = i + 1; j < messages.length; j++) {
           if (messages[j].type === "agent") {
             const diff = Math.floor((messages[j].timeObj.getTime() - messages[i].timeObj.getTime()) / 1000);
@@ -135,7 +156,6 @@ export default function AhtEnhancement({ evaluations, onSave }: AhtEnhancementPr
 
     // Max Hold Time
     let maxHold = 0;
-    const holdKw = ["لحظات", "دقيقتين", "انتظار", "افحص", "راجع", "هتاكد", "ثواني", "معايا"];
     for (let i = 0; i < messages.length - 1; i++) {
       if (messages[i].type === "agent" && holdKw.some(kw => messages[i].text.includes(kw))) {
         for (let j = i + 1; j < messages.length; j++) {
@@ -160,10 +180,31 @@ export default function AhtEnhancement({ evaluations, onSave }: AhtEnhancementPr
 
     const messages = parseChatLogText(chatInput);
     if (messages.length > 0) {
+      // Pre-calculate hold intervals for validation
+      const validationHoldIntervals: Array<{ startMs: number; endMs: number }> = [];
+      for (let k = 0; k < messages.length - 1; k++) {
+        if (messages[k].type === "agent" && holdKw.some(kw => messages[k].text.includes(kw))) {
+          for (let j = k + 1; j < messages.length; j++) {
+            if (messages[j].type === "agent") {
+              validationHoldIntervals.push({
+                startMs: messages[k].timeObj.getTime(),
+                endMs: messages[j].timeObj.getTime()
+              });
+              break;
+            }
+          }
+        }
+      }
+
       for (let i = 0; i < messages.length - 1; i++) {
         const cur = messages[i];
 
         if (cur.type === "customer") {
+          // Skip if during a hold
+          const curTime = cur.timeObj.getTime();
+          const isDuringHold = validationHoldIntervals.some(interval => curTime >= interval.startMs && curTime <= interval.endMs);
+          if (isDuringHold) continue;
+
           for (let j = i + 1; j < messages.length; j++) {
             if (messages[j].type === "agent") {
               const diff = Math.floor((messages[j].timeObj.getTime() - cur.timeObj.getTime()) / 1000);

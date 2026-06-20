@@ -116,9 +116,9 @@ export default function GeminiCopilot() {
       const assistantMsg: Message = {
         id: "msg_" + Math.random().toString(36).substring(2, 9),
         role: "assistant",
-        content: `⚠️ تعذر إرسال طلبك إلى السيرفر الرئيسي.\n\nيرجى التحقق من اتصالك بالمنفذ 3000 أو تفعيل مفتاح الـ Gemini API في لوحة الإعدادات.`,
+        content: `⚠️ **تنبيه الاتصال السحابي (Cloud Connection Alert):**\n\nتعذر الاتصال بخوادم معالجة الذكاء الاصطناعي السحابية بنجاح (قد يكون ذلك ناتجاً عن نفاد حصة رصيد الفحص/Prepayment credits الملحقة بالمفتاح).\n\n💡 **طريقة الحل:**\n1. تفضل بالانتقال إلى **لوحة الإدارة (Admin Panel)** لإلقاء نظرة على جهوزية المنظومة.\n2. تفضل بربط مفتاح الـ **Gemini API Key** الخاص بك في حقل إدخال المفتاح وتفعيله فوراً بالخادم!`,
         timestamp: new Date(),
-        modelUsed: "خطأ محلي"
+        modelUsed: "مصحح إرشادي 🛠️"
       };
       setMessages(prev => [...prev, assistantMsg]);
     } finally {
