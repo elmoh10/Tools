@@ -1,0 +1,88 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Cairo:wght@400;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Cairo", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  
+  --color-brand-purple: #5c246f;
+  --color-brand-magenta: #cf0a70;
+  --color-brand-purple-hover: #4d1c5a;
+  --color-brand-magenta-hover: #b40656;
+}
+
+:root {
+  /* Default Dark Theme Variables */
+  --bg-main: #0a0a0f;
+  --bg-sidebar: #0f0d18;
+  --bg-card: rgba(255, 255, 255, 0.03);
+  --border-card: rgba(255, 255, 255, 0.07);
+  --text-primary: #ffffff;
+  --text-secondary: #94a3b8;
+  --bg-input: #121320;
+  
+  --accent-purple: #8b5cf6;
+  --accent-hover: #7c3aed;
+  
+  --pass-color: #10b981;
+  --fail-color: #ef4444;
+  --warning-color: #f59e0b;
+  
+  --chat-agent-bg: rgba(139, 92, 246, 0.15);
+  --chat-cust-bg: rgba(255, 255, 255, 0.05);
+}
+
+.light-theme {
+  /* Light Theme Variables */
+  --bg-main: #f4f5f9;
+  --bg-sidebar: #ffffff;
+  --bg-card: #ffffff;
+  --border-card: #e5e7eb;
+  --text-primary: #0f172a;
+  --text-secondary: #4b5563;
+  --bg-input: #ffffff;
+  
+  --accent-purple: #5c246f;
+  --accent-hover: #4d1c5a;
+  
+  --chat-agent-bg: rgba(92, 36, 111, 0.08);
+  --chat-cust-bg: #f1f5f9;
+}
+
+body {
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  transition: background-color 0.3s, color 0.3s;
+}
+
+/* Styled Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-card);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-magenta);
+}
+
+/* Styled animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* RTL Helpers */
+[dir="rtl"] {
+  text-align: right;
+}
