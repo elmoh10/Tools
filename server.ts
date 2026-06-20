@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { createServer as createViteServer } from "vite";
-import { initializeApp, getApps, getApp } from "firebase-admin/app";
+import { initializeApp, getApps, getApp, cert } from "firebase-admin/app";
 import { getFirestore, Firestore } from "firebase-admin/firestore";
 
 const app = express();
@@ -226,25 +226,76 @@ async function initializeFirestore() {
       return;
     }
 
+    // Load Firebase Service Account key if supplied in environment variables (useful for deployments outside GCP like Render)
+    let cred = undefined;
+    const saEnv = (process.env.FIREBASE_SERVICE_ACCOUNT || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON || "").trim();
+    if (saEnv) {
+      if (saEnv.startsWith("{")) {
+        try {
+          const serviceAccount = JSON.parse(saEnv);
+          cred = cert(serviceAccount);
+          console.log("🗝️ Successfully loaded Firebase service account credential from environment variable.");
+        } catch (err) {
+          console.warn("⚠️ Failed to parse service account JSON from environmental variables:", err);
+        }
+      } else {
+        console.warn("⚠️ Environment variable for Firebase Service Account does not appear to be a JSON string. Skipping JSON parse.");
+      }
+    }
+
     if (getApps().length === 0) {
-      initializeApp({
+      const appOptions: any = {
         projectId: projectId
-      });
+      };
+      if (cred) {
+        appOptions.credential = cred;
+      }
+      initializeApp(appOptions);
     }
 
+    let tempDb: Firestore;
     if (databaseId) {
-      firestoreDb = getFirestore(getApp(), databaseId);
+      tempDb = getFirestore(getApp(), databaseId);
     } else {
-      firestoreDb = getFirestore();
+      tempDb = getFirestore();
     }
 
-    isFirestoreInitialized = true;
-    console.log(`📡 Cloud Sync activated! Connected to Firestore project: ${projectId}, database: ${databaseId || "(default)"}`);
-
-    await startFirestoreSync();
+    // CRITICAL: Proactively verify if we have valid credentials or access to call Firestore APIs.
+    // This prevents any unhandled background exceptions (like NO_ADC_FOUND) from crashing the server on Render or elsewhere.
+    console.log("📡 Proactively checking cloud connection credentials...");
+    try {
+      await tempDb.collection("users").limit(1).get();
+      // If we reach here, we successfully verified the connection and authentication credentials!
+      firestoreDb = tempDb;
+      isFirestoreInitialized = true;
+      console.log(`📡 Cloud Sync activated! Connected to Firestore project: ${projectId}, database: ${databaseId || "(default)"}`);
+      
+      await startFirestoreSync();
+    } catch (authErr: any) {
+      const errMsg = authErr?.message || String(authErr);
+      console.error("\n=======================================================");
+      console.error("⚠️ FIREBASE CREDENTIAL ERROR (عطل في مصادقة قاعدة البيانات السحابية):");
+      console.error("فشل الخادم في الاتصال بـ Firebase Firestore سحابياً بسبب غياب أو عدم صلاحية المفاتيح.");
+      console.error(`تفاصيل الخطأ: ${errMsg}`);
+      console.error("\n💡 كيف يمكنك حل هذه المشكلة على منصة Render أو خادمك الخارجي؟");
+      console.error("1. اذهب إلى Firebase Console الخاص بـ المشروع.");
+      console.error("2. توجه إلى Project Settings ثم Service Accounts.");
+      console.error("3. اضغط على Generate New Private Key وقم بتحميل ملف المفاتيح بصيغة JSON.");
+      console.error("4. على منصة الاستضافة (Render)، قم بإضافة متغير بيئة (Environment Variable) جديد باسم:");
+      console.error("   FIREBASE_SERVICE_ACCOUNT");
+      console.error("5. ضع كامل محتوى ملف الـ JSON الذي قمت بتحميله كقيمة لهذا المتغير.");
+      console.error("\n🔒 تم التحويل التلقائي لتشغيل التول في وضع التخزين المحلي الآمن (Local Storage Mode) لتجنب توقف الموقع!");
+      console.error("=======================================================\n");
+      
+      // Fallback cleanly so the server doesn't crash!
+      firestoreDb = null;
+      isFirestoreInitialized = false;
+    }
 
   } catch (err) {
     console.error("❌ Failed to initialize Firebase Admin SDK:", err);
+    firestoreDb = null;
+    isFirestoreInitialized = false;
   }
 }
 
