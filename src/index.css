@@ -124,3 +124,44 @@ input, textarea, select, [contenteditable="true"] {
 [dir="rtl"] {
   text-align: right;
 }
+
+/* Mobile responsive touch target sizing & scroll improvements */
+@media (max-width: 768px) {
+  /* Enlarge touch targets of buttons and interactive elements to easily support thumbs (at least 44px height) */
+  button,
+  .btn,
+  select,
+  input[type="button"],
+  input[type="submit"] {
+    min-height: 44px !important;
+    padding-top: 0.65rem !important;
+    padding-bottom: 0.65rem !important;
+    font-size: 0.85rem !important;
+    touch-action: manipulation;
+  }
+
+  /* Make sure input fields are readable and easy to select on touch */
+  input[type="text"],
+  input[type="password"],
+  textarea {
+    min-height: 44px !important;
+    font-size: 0.85rem !important;
+  }
+
+  /* Add touch cues and automatic smooth friction scrolling for horizontal swipeable tables */
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    overflow-x: auto;
+  }
+
+  /* Force table layouts or lists under tables to keep their visual columns without shrinking on small screens */
+  table {
+    min-width: 650px !important;
+  }
+
+  /* Soften touch buttons list gaps so they don't block each other */
+  .flex.gap-2 {
+    gap: 0.6rem !important;
+  }
+}

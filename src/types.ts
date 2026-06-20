@@ -13,6 +13,8 @@ export interface NpsEvaluation {
   isFaulty: boolean;
   acknowledged?: boolean;
   ackDate?: string;
+  ctcCount?: number;
+  ctbCount?: number;
 }
 
 export interface QualityRecord {

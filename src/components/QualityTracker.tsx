@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { QualityRecord } from "../types";
-import { Search, Shield, Upload, FileSpreadsheet, Download, RefreshCw, BarChart, AlertCircle, Copy, Mail, ArrowLeft, LogOut } from "lucide-react";
+import { Search, Shield, Upload, FileSpreadsheet, Download, RefreshCw, BarChart, AlertCircle, Copy, Mail, ArrowLeft, LogOut, TrendingUp, PieChart } from "lucide-react";
 import * as XLSX from "xlsx";
 
 interface QualityTrackerProps {
@@ -51,6 +51,7 @@ export default function QualityTracker({ records, onUploadBulk }: QualityTracker
 
   // Search Results
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [qualityFilter, setQualityFilter] = useState<"both" | "ctc" | "ctb">("both");
 
   // Authenticate user
   const handleLogin = () => {
@@ -629,6 +630,320 @@ ${payload.text || "مراجعة يدوية"}
                 <span className="text-lg font-black text-[var(--color-brand-magenta)]">{selectedAgent.total_errors}</span>
               </div>
             </div>
+
+            {/* INLINE CHARTS: Annual Performance Trend + Critical to Customer/Business Doughnut with custom select */}
+            {(() => {
+              const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+              const monthsArabic = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+              
+              // 1. Calculate Monthly Quality scores for this specific agent
+              const trendPoints = months.map((m, idx) => {
+                let mBusiness = 0;
+                let mCustomer = 0;
+                (selectedAgent.details[m] || []).forEach(err => {
+                  if (err.fatality.toLowerCase().includes("customer")) {
+                    mCustomer++;
+                  } else {
+                    mBusiness++;
+                  }
+                });
+                const mPenalty = (mCustomer * 5) + (mBusiness * 2);
+                const mScore = Math.max(0, 100 - mPenalty);
+                const hasEvaluations = selectedAgent.errors[m] > 0;
+                return {
+                  month: m,
+                  monthAr: monthsArabic[idx],
+                  score: mScore,
+                  hasData: hasEvaluations
+                };
+              });
+
+              // Coordinates parameters for trend line
+              const minYTrend = 50;
+              const maxYTrend = 100;
+              const chW = 500;
+              const chH = 180;
+              const padX = 35;
+              const padY = 25;
+              const plW = chW - 2 * padX;
+              const plH = chH - 2 * padY;
+
+              const svgPoints = trendPoints.map((d, i) => {
+                const x = padX + (i * (plW / 11));
+                const clScore = Math.max(minYTrend, Math.min(maxYTrend, d.score));
+                const y = padY + plH - ((clScore - minYTrend) / (maxYTrend - minYTrend)) * plH;
+                return { x, y, ...d };
+              });
+
+              const linePathD = svgPoints.reduce((acc, p, i) => acc + (i === 0 ? `M ${p.x} ${p.y}` : ` L ${p.x} ${p.y}`), "");
+              const areaPathD = `${linePathD} L ${svgPoints[svgPoints.length - 1].x} ${chH - padY} L ${svgPoints[0].x} ${chH - padY} Z`;
+
+              // 2. Calculate Doughnut Slice Data for errors classification
+              let totalAgentCtc = 0;
+              let totalAgentCtb = 0;
+              const ctcCategoryCounts: { [key: string]: number } = {};
+              const ctbCategoryCounts: { [key: string]: number } = {};
+
+              Object.keys(selectedAgent.details).forEach(m => {
+                (selectedAgent.details[m] || []).forEach(err => {
+                  const isCtc = err.fatality.toLowerCase().includes("customer");
+                  if (isCtc) {
+                    totalAgentCtc++;
+                    ctcCategoryCounts[err.factor] = (ctcCategoryCounts[err.factor] || 0) + 1;
+                  } else {
+                    totalAgentCtb++;
+                    ctbCategoryCounts[err.factor] = (ctbCategoryCounts[err.factor] || 0) + 1;
+                  }
+                });
+              });
+
+              // Prepare doughnut details based on toggled qualityFilter selector
+              let showDoughnutSlices: Array<{ label: string; value: number; color: string; badge: string }> = [];
+              let totalFilteredCount = 0;
+
+              if (qualityFilter === "both") {
+                totalFilteredCount = totalAgentCtc + totalAgentCtb;
+                showDoughnutSlices = [
+                  { label: "كواليتي العميل (Critical to Customer)", value: totalAgentCtc, color: "#f97316", badge: "🟠" },
+                  { label: "كواليتي العمليات (Critical to Business)", value: totalAgentCtb, color: "#a855f7", badge: "🟣" }
+                ].filter(s => s.value > 0);
+              } else if (qualityFilter === "ctc") {
+                totalFilteredCount = totalAgentCtc;
+                showDoughnutSlices = Object.keys(ctcCategoryCounts).map((factor, idx) => {
+                  const colors = ["#06b6d4", "#0ea5e9", "#38bdf8", "#0284c7", "#0369a1"];
+                  return {
+                    label: factor,
+                    value: ctcCategoryCounts[factor],
+                    color: colors[idx % colors.length],
+                    badge: "🎯"
+                  };
+                });
+              } else {
+                totalFilteredCount = totalAgentCtb;
+                showDoughnutSlices = Object.keys(ctbCategoryCounts).map((factor, idx) => {
+                  const colors = ["#f43f5e", "#ec4899", "#fda4af", "#e11d48", "#be123c"];
+                  return {
+                    label: factor,
+                    value: ctbCategoryCounts[factor],
+                    color: colors[idx % colors.length],
+                    badge: "⚙️"
+                  };
+                });
+              }
+
+              // Custom SVG Pie mathematics
+              const r = 52;
+              const strokeW = 14;
+              const circ = 2 * Math.PI * r;
+              let accumulatedPerc = 0;
+
+              return (
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-6" dir="rtl">
+                  
+                  {/* Part 1: Annual Score timeline */}
+                  <div className="lg:col-span-3 bg-[var(--bg-card)] border border-[var(--border-card)] p-5 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-white flex items-center gap-2 mb-1">
+                        <TrendingUp size={16} className="text-[var(--color-brand-magenta)]" />
+                        مخطط التقييم السنوي للموظف (من أول السنة لآخرها)
+                      </h4>
+                      <p className="text-[10px] text-[var(--text-secondary)]">تتبع فوري ومستمر لمتوسط جودة المحادثات عبر الشهور (مع التحديث التلقائي)</p>
+                    </div>
+
+                    <div className="relative w-full overflow-x-auto mt-4">
+                      <div className="min-w-[440px]">
+                        <svg viewBox={`0 0 ${chW} ${chH}`} className="w-full h-auto overflow-visible select-none">
+                          <defs>
+                            <linearGradient id="selectedAgentAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#cf0a70" stopOpacity="0.25" />
+                              <stop offset="100%" stopColor="#cf0a70" stopOpacity="0.0" />
+                            </linearGradient>
+                          </defs>
+
+                          {/* Reference gridlines in SVG */}
+                          {[50, 60, 70, 80, 90, 100].map((scValue) => {
+                            const y = padY + plH - ((scValue - minYTrend) / (maxYTrend - minYTrend)) * plH;
+                            return (
+                              <g key={scValue}>
+                                <line x1={padX} y1={y} x2={chW - padX} y2={y} stroke="rgba(255,255,255,0.03)" strokeDasharray="3 3" />
+                                <text x={padX - 8} y={y + 3} className="text-[8px] font-mono fill-gray-500 font-bold" textAnchor="end">{scValue}%</text>
+                              </g>
+                            );
+                          })}
+
+                          {/* Trend fill Area & Line */}
+                          {svgPoints.length > 0 && (
+                            <>
+                              <path d={areaPathD} fill="url(#selectedAgentAreaGrad)" />
+                              <path d={linePathD} fill="none" stroke="#cf0a70" strokeWidth={2.5} strokeLinecap="round" />
+                            </>
+                          )}
+
+                          {/* Plot Dots */}
+                          {svgPoints.map((pt, idx) => (
+                            <g key={idx} className="group cursor-pointer">
+                              <circle
+                                cx={pt.x}
+                                cy={pt.y}
+                                r={4.5}
+                                className={`fill-[#120e25] transition duration-150 ${pt.hasData ? "stroke-[#cf0a70]" : "stroke-gray-700"} stroke-2 group-hover:r-6 group-hover:fill-[#cf0a70]`}
+                              />
+                              <text
+                                x={pt.x}
+                                y={pt.y - 10}
+                                className={`text-[8.5px] font-mono font-black ${pt.hasData ? "fill-emerald-400" : "fill-gray-500"}`}
+                                textAnchor="middle"
+                              >
+                                {pt.score}%
+                              </text>
+                              <text
+                                x={pt.x}
+                                y={chH - padY + 14}
+                                className="text-[8.5px] font-sans fill-gray-400 font-bold"
+                                textAnchor="middle"
+                              >
+                                {pt.monthAr}
+                              </text>
+                            </g>
+                          ))}
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Part 2: Circular Doughnut Error distribution with option switch */}
+                  <div className="lg:col-span-2 bg-[var(--bg-card)] border border-[var(--border-card)] p-5 rounded-2xl flex flex-col justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-white flex items-center gap-2 mb-1">
+                        <PieChart size={16} className="text-amber-400" />
+                        توزيع الأخطاء الحرجة (Critical To Customer/Business)
+                      </h4>
+                      <p className="text-[10px] text-[var(--text-secondary)]">تحديد دقيق للأخطاء مع إمكانية عرض كل نوع وتفاصيله بشكل تفاعلي</p>
+                    </div>
+
+                    {/* Filter Selector Options Buttons */}
+                    <div className="grid grid-cols-3 gap-1 bg-[#100c21] p-1 rounded-xl border border-[var(--border-card)] my-3">
+                      <button
+                        onClick={() => setQualityFilter("both")}
+                        className={`py-1.5 rounded-lg text-[10px] font-bold transition text-center cursor-pointer ${
+                          qualityFilter === "both"
+                            ? "bg-[var(--color-brand-magenta)] text-white font-black"
+                            : "text-gray-400 hover:text-white"
+                        }`}
+                      >
+                        كلاهما (CTC/CTB)
+                      </button>
+                      <button
+                        onClick={() => setQualityFilter("ctc")}
+                        className={`py-1.5 rounded-lg text-[10px] font-bold transition text-center cursor-pointer ${
+                          qualityFilter === "ctc"
+                            ? "bg-cyan-600 text-white font-black"
+                            : "text-gray-400 hover:text-white"
+                        }`}
+                      >
+                        العميل (CTC)
+                      </button>
+                      <button
+                        onClick={() => setQualityFilter("ctb")}
+                        className={`py-1.5 rounded-lg text-[10px] font-bold transition text-center cursor-pointer ${
+                          qualityFilter === "ctb"
+                            ? "bg-fuchsia-700 text-white font-black"
+                            : "text-gray-400 hover:text-white"
+                        }`}
+                      >
+                        العملية (CTB)
+                      </button>
+                    </div>
+
+                    {/* Circular Doughnut Presentation */}
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-5 pt-1">
+                      <div className="relative w-[120px] h-[120px] flex-shrink-0">
+                        {totalFilteredCount === 0 ? (
+                          <div className="absolute inset-0 flex flex-col justify-center items-center text-center p-2 rounded-full border border-emerald-500/20 bg-emerald-500/5">
+                            <span className="text-[18px]">🏅</span>
+                            <span className="text-[8px] text-emerald-400 font-bold mt-1">لا يوجد أخطاء</span>
+                            <span className="text-[7px] text-gray-400">سجل نظيف بالكامل</span>
+                          </div>
+                        ) : (
+                          <>
+                            <svg className="w-full h-full transform -rotate-90">
+                              <circle
+                                cx="60"
+                                cy="60"
+                                r={r}
+                                fill="transparent"
+                                stroke="rgba(255,255,255,0.02)"
+                                strokeWidth={strokeW}
+                              />
+                              {showDoughnutSlices.map((slice, i) => {
+                                const ratio = slice.value / totalFilteredCount;
+                                if (ratio === 0) return null;
+                                const offsetVal = circ - ratio * circ;
+                                const rotationDeg = accumulatedPerc * 360;
+                                accumulatedPerc += ratio;
+
+                                return (
+                                  <circle
+                                    key={i}
+                                    cx="60"
+                                    cy="60"
+                                    r={r}
+                                    fill="transparent"
+                                    stroke={slice.color}
+                                    strokeWidth={strokeW}
+                                    strokeDasharray={circ}
+                                    strokeDashoffset={offsetVal}
+                                    style={{
+                                      transform: `rotate(${rotationDeg}deg)`,
+                                      transformOrigin: "60px 60px",
+                                      transition: "all 0.5s ease-out"
+                                    }}
+                                    strokeLinecap="round"
+                                  />
+                                );
+                              })}
+                            </svg>
+                            {/* Total in center of Doughnut */}
+                            <div className="absolute inset-0 flex flex-col justify-center items-center pointer-events-none text-center">
+                              <span className="text-[8px] text-[var(--text-secondary)] font-bold">المجموع</span>
+                              <span className="text-lg font-black text-white">{totalFilteredCount}</span>
+                              <span className="text-[7.5px] text-gray-400 font-bold">مخالفة</span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Doughnut legends list container */}
+                      <div className="flex flex-col gap-1 w-full max-h-[120px] overflow-y-auto">
+                        {showDoughnutSlices.length === 0 ? (
+                          <div className="text-center text-[10px] text-gray-500 py-6">
+                            لا توجد بنود فشل لهذا الخيار.
+                          </div>
+                        ) : (
+                          showDoughnutSlices.map((slice, idx) => {
+                            const percentage = totalFilteredCount > 0 ? Math.round((slice.value / totalFilteredCount) * 100) : 0;
+                            return (
+                              <div key={idx} className="flex items-center justify-between p-1.5 rounded bg-white/[0.02] border border-white/5">
+                                <div className="flex items-center gap-1 overflow-hidden">
+                                  <span className="text-[10px]">{slice.badge}</span>
+                                  <span className="text-[9px] text-gray-300 font-medium truncate" title={slice.label}>{slice.label}</span>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <span className="text-[10px] font-black text-white">{slice.value}</span>
+                                  <span className="text-[7.5px] font-mono text-gray-400 bg-white/5 px-1 py-0.2 rounded-full">
+                                    {percentage}%
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Quality months blocks table grid */}
             <div className="bg-[var(--bg-card)] border border-[var(--border-card)] rounded-2xl overflow-hidden p-4">

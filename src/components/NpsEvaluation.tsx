@@ -527,6 +527,27 @@ export default function NpsEvaluationComponent({ onSave }: NpsEvaluationProps) {
   const saveFinalEvaluation = async () => {
     setIsSaving(true);
     try {
+      let ctcCount = 0;
+      let ctbCount = 0;
+
+      checklist.forEach(item => {
+        if (item.checked) {
+          const factor = (item.factor || "").toLowerCase();
+          const isCtb = 
+            factor.includes("starting") || 
+            factor.includes("ending") || 
+            factor.includes("cancel") || 
+            factor.includes("no answer") || 
+            factor.includes("chatbot");
+            
+          if (isCtb) {
+            ctbCount++;
+          } else {
+            ctcCount++;
+          }
+        }
+      });
+
       const payload: Partial<NpsEvaluation> = {
         chatId,
         agentName,
@@ -538,7 +559,9 @@ export default function NpsEvaluationComponent({ onSave }: NpsEvaluationProps) {
         aiCoaching: aiCoachingPlan || "مثالي.",
         npsPrediction,
         date: new Date().toISOString(),
-        isFaulty: score < 100
+        isFaulty: score < 100,
+        ctcCount,
+        ctbCount
       };
 
       await onSave(payload);
