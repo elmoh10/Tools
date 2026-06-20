@@ -415,9 +415,16 @@ app.post("/api/admin/api-key", (req, res) => {
   }
 
   const trimmedKey = key.trim();
+  const isValidPrefixed = trimmedKey.startsWith("AIzaSy");
+  
   database.gemini_api_key = trimmedKey;
   saveDb(database);
-  res.json({ success: true, activeKeySnippet: trimmedKey.substring(0, 7) + "..." + trimmedKey.slice(-4) });
+  
+  res.json({ 
+    success: true, 
+    activeKeySnippet: trimmedKey.substring(0, 7) + "..." + trimmedKey.slice(-4),
+    warning: !isValidPrefixed ? "⚠️ يرجى الانتباه: مفاتيح Gemini API الرسمية من Google AI Studio يجب أن تبدأ بالرمز 'AIzaSy'. يرجى التأكد من أنك لم تقم بنسخ مفتاح خاطئ." : null
+  });
 });
 
 app.delete("/api/admin/api-key", (req, res) => {

@@ -229,7 +229,12 @@ export default function AdminPanel() {
       });
 
       if (res.ok) {
-        setApiKeyMsg({ text: "✨ تم تحديث مفتاح Gemini API وتفعيله بنجاح بالخادم!", isError: false });
+        const data = await res.json();
+        if (data.warning) {
+          setApiKeyMsg({ text: `⚠️ تم الحفظ ولكن مع تحذير: ${data.warning}`, isError: true });
+        } else {
+          setApiKeyMsg({ text: "✨ تم تحديث مفتاح Gemini API وتفعيله بنجاح بالخادم!", isError: false });
+        }
         setNewApiKey("");
         fetchApiKeyInfo();
       } else {
